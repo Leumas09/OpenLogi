@@ -1,25 +1,28 @@
-//! Compact transient lock-key indicator: "Caps Lock On" and the like, shown
-//! when a keyboard reports one of its lock keys turning on or off.
+//! Compact transient key indicator: "Caps Lock On" and the like when a
+//! keyboard reports one of its lock keys turning on or off, and, on Windows,
+//! the screen brightness or media key it reports pressed.
 //!
 //! The agent decides what shows and for how long
-//! ([`openlogi_ipc::LockKeyObservation`]); this module only draws it. The window
-//! opens with the first change, shows each later change in place, and closes
-//! when the agent reports nothing showing.
+//! ([`openlogi_ipc::LockKeyObservation`]); this module only draws it, with the
+//! shared indicator card ([`crate::indicator`]). The window opens with the
+//! first change, shows each later change in place, and closes when the agent
+//! reports nothing showing. A brightness key also shows the built-in panel's
+//! brightness, read here once the key has had time to change it.
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Context, FontWeight, Hsla, IntoElement,
-    ParentElement, Render, Size, Styled, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, px, svg,
+    AnyWindowHandle, App, AppContext as _, Context, Hsla, IntoElement, Render, SharedString,
+    Window, WindowHandle,
 };
 use openlogi_core::device::LockKey;
 use openlogi_ipc::LockKeyChange;
-use openlogi_ui::action_icons::LOCK_KEY_ICON;
+use openlogi_ui::action_icons::{
+    BRIGHTNESS_DOWN_ICON, BRIGHTNESS_UP_ICON, CAPS_LOCK_ICON, FN_LOCK_OFF_ICON, FN_LOCK_ON_ICON,
+    NEXT_TRACK_ICON, NUM_LOCK_ICON, PLAY_PAUSE_ICON, PREVIOUS_TRACK_ICON, SCROLL_LOCK_ICON,
+};
 use openlogi_ui::color::{self, neutral};
 use tracing::warn;
 
-/// Wide enough for the longest translated title on one line.
-const WIDTH: f32 = 360.0;
-const HEIGHT: f32 = 72.0;
+use crate::indicator::{self, Level, TEXT};
 
 /// The glyph of a key that is now off.
 const RELEASED: Hsla = neutral(0.60, 1.0);
@@ -35,56 +38,81 @@ pub(crate) const fn title_key(change: LockKeyChange) -> &'static str {
         (LockKey::ScrollLock, false) => "keyboard.scroll_lock_off",
         (LockKey::FnLock, true) => "keyboard.fn_lock_on",
         (LockKey::FnLock, false) => "keyboard.fn_lock_off",
+        (LockKey::BrightnessDown | LockKey::BrightnessUp, _) => "keyboard.indicator_brightness",
+        (LockKey::PreviousTrack, _) => "actions.previous_track",
+        (LockKey::PlayPause, _) => "actions.play_pause",
+        (LockKey::NextTrack, _) => "actions.next_track",
     }
 }
 
-/// The colour of the glyph for a key that is now `engaged` or not. A key that
-/// is on takes the brand accent, the same blue the backlight indicator's bar
-/// and the settings app paint with.
-fn glyph_colour(engaged: bool) -> Hsla {
-    if engaged { color::accent() } else { RELEASED }
+/// The glyph that stands for `change`.
+pub(crate) const fn icon(change: LockKeyChange) -> &'static str {
+    match (change.key, change.engaged) {
+        (LockKey::CapsLock, _) => CAPS_LOCK_ICON,
+        (LockKey::NumLock, _) => NUM_LOCK_ICON,
+        (LockKey::ScrollLock, _) => SCROLL_LOCK_ICON,
+        (LockKey::FnLock, true) => FN_LOCK_ON_ICON,
+        (LockKey::FnLock, false) => FN_LOCK_OFF_ICON,
+        (LockKey::BrightnessDown, _) => BRIGHTNESS_DOWN_ICON,
+        (LockKey::BrightnessUp, _) => BRIGHTNESS_UP_ICON,
+        (LockKey::PreviousTrack, _) => PREVIOUS_TRACK_ICON,
+        (LockKey::PlayPause, _) => PLAY_PAUSE_ICON,
+        (LockKey::NextTrack, _) => NEXT_TRACK_ICON,
+    }
 }
 
-/// The indicator window's view: the latest change the agent is showing.
+/// The colour of the glyph for `change`. A lock key that is on takes the
+/// brand accent, the same blue the level bars and the settings app paint
+/// with, and one that is off is grey; a pressed key carries no state.
+fn glyph_colour(change: LockKeyChange) -> Hsla {
+    if change.key.is_press() {
+        TEXT
+    } else if change.engaged {
+        color::accent()
+    } else {
+        RELEASED
+    }
+}
+
+/// Whether `key` changes the screen brightness, so its indicator shows it.
+const fn shows_brightness(key: LockKey) -> bool {
+    matches!(key, LockKey::BrightnessDown | LockKey::BrightnessUp)
+}
+
+/// The bar for a screen brightness of `percent`.
+fn brightness_level(percent: u8) -> Level {
+    Level {
+        fraction: f32::from(percent) / 100.0,
+        label: SharedString::from(percent.to_string()),
+    }
+}
+
+/// The indicator window's view: the latest change the agent is showing, and
+/// for a brightness key the brightness read since.
 pub(crate) struct LockKeyView {
     change: LockKeyChange,
+    brightness: Option<u8>,
 }
 
 impl Render for LockKeyView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap(px(12.0))
-            .w(px(WIDTH))
-            .h(px(HEIGHT))
-            .px(px(20.0))
-            .rounded(px(12.0))
-            .bg(neutral(0.08, 0.94))
-            .text_color(neutral(0.96, 1.0))
-            .child(
-                svg()
-                    .path(LOCK_KEY_ICON)
-                    .size(px(24.0))
-                    .flex_none()
-                    .text_color(glyph_colour(self.change.engaged)),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(rust_i18n::t!(title_key(self.change)).into_owned()),
-            )
+        let level = shows_brightness(self.change.key)
+            .then_some(self.brightness)
+            .flatten()
+            .map(brightness_level);
+        indicator::card(
+            icon(self.change),
+            glyph_colour(self.change),
+            rust_i18n::t!(title_key(self.change)).into_owned(),
+            level,
+        )
     }
 }
 
 /// Show `shown`, or close the indicator when it is `None`.
 ///
-/// A change while the window is open replaces its text in place, so presses
-/// in quick succession do not flash the window closed and open again.
+/// A change while the window is open replaces what it shows in place, so
+/// presses in quick succession do not flash the window closed and open again.
 pub(crate) fn present(cx: &mut App, shown: Option<LockKeyChange>) {
     let open: Vec<WindowHandle<LockKeyView>> = cx
         .windows()
@@ -97,39 +125,64 @@ pub(crate) fn present(cx: &mut App, shown: Option<LockKeyChange>) {
         }
         return;
     };
+    let brightness = if shows_brightness(change.key) {
+        indicator::screen_brightness()
+    } else {
+        None
+    };
     if open.is_empty() {
-        let options = window_options(cx);
-        if let Err(error) =
-            crate::indicator::open(cx, options, |_, cx| cx.new(|_| LockKeyView { change }))
-        {
+        let options = indicator::window_options(cx, "openlogi-lock-key-osd");
+        if let Err(error) = indicator::open(cx, options, |_, cx| {
+            cx.new(|_| LockKeyView { change, brightness })
+        }) {
             warn!(%error, "could not open the lock-key indicator window");
         }
-        return;
+    } else {
+        for view in open {
+            let _ = view.update(cx, |view, _, cx| {
+                view.change = change;
+                view.brightness = brightness;
+                cx.notify();
+            });
+        }
     }
-    for view in open {
-        let _ = view.update(cx, |view, _, cx| {
-            view.change = change;
-            cx.notify();
-        });
+    if shows_brightness(change.key) {
+        follow_brightness(cx);
     }
 }
 
-fn window_options(cx: &mut App) -> WindowOptions {
-    let bounds = Bounds::centered(None, Size::new(px(WIDTH), px(HEIGHT)), cx);
-    WindowOptions {
-        titlebar: None,
-        focus: false,
-        show: true,
-        kind: WindowKind::PopUp,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Transparent,
-        app_id: Some("openlogi-lock-key-osd".to_string()),
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        ..WindowOptions::default()
-    }
+/// Re-read the panel's brightness a few times after a brightness key, as
+/// Windows eases it to its new level, and show each reading.
+#[cfg(all(windows, not(test)))]
+fn follow_brightness(cx: &mut App) {
+    use std::time::Duration;
+
+    cx.spawn(async move |cx| {
+        for delay in [120, 250, 450] {
+            cx.background_executor()
+                .timer(Duration::from_millis(delay))
+                .await;
+            let brightness = indicator::screen_brightness();
+            cx.update(|cx| {
+                for handle in cx.windows() {
+                    if let Some(view) = handle.downcast::<LockKeyView>() {
+                        let _ = view.update(cx, |view, _, cx| {
+                            if shows_brightness(view.change.key) {
+                                view.brightness = brightness;
+                                cx.notify();
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    })
+    .detach();
 }
+
+/// Elsewhere no panel reports a brightness, and tests read none.
+#[cfg(any(not(windows), test))]
+const fn follow_brightness(_cx: &mut App) {}
 
 #[cfg(test)]
 mod tests {
@@ -153,11 +206,33 @@ mod tests {
             ),
             (change(LockKey::FnLock, true), "keyboard.fn_lock_on"),
             (change(LockKey::FnLock, false), "keyboard.fn_lock_off"),
+            (
+                change(LockKey::BrightnessDown, true),
+                "keyboard.indicator_brightness",
+            ),
+            (
+                change(LockKey::BrightnessUp, true),
+                "keyboard.indicator_brightness",
+            ),
+            (
+                change(LockKey::PreviousTrack, true),
+                "actions.previous_track",
+            ),
+            (change(LockKey::PlayPause, true), "actions.play_pause"),
+            (change(LockKey::NextTrack, true), "actions.next_track"),
         ];
         // Exhaustive on purpose: a new lock key stops this compiling until it
         // is listed above.
         let _: fn(LockKey) = |key| match key {
-            LockKey::CapsLock | LockKey::NumLock | LockKey::ScrollLock | LockKey::FnLock => {}
+            LockKey::CapsLock
+            | LockKey::NumLock
+            | LockKey::ScrollLock
+            | LockKey::FnLock
+            | LockKey::BrightnessDown
+            | LockKey::BrightnessUp
+            | LockKey::PreviousTrack
+            | LockKey::PlayPause
+            | LockKey::NextTrack => {}
         };
         for (change, key) in expected {
             assert_eq!(title_key(change), key, "{change:?}");
@@ -168,12 +243,7 @@ mod tests {
     /// other locales are held to the same keys by `catalog_parity`.
     #[test]
     fn every_announcement_is_in_the_catalog() {
-        for key in [
-            LockKey::CapsLock,
-            LockKey::NumLock,
-            LockKey::ScrollLock,
-            LockKey::FnLock,
-        ] {
+        for key in ALL_KEYS {
             for engaged in [true, false] {
                 let title = title_key(change(key, engaged));
                 assert_ne!(rust_i18n::t!(title, locale = "en"), title);
@@ -181,11 +251,62 @@ mod tests {
         }
     }
 
+    const ALL_KEYS: [LockKey; 9] = [
+        LockKey::CapsLock,
+        LockKey::NumLock,
+        LockKey::ScrollLock,
+        LockKey::FnLock,
+        LockKey::BrightnessDown,
+        LockKey::BrightnessUp,
+        LockKey::PreviousTrack,
+        LockKey::PlayPause,
+        LockKey::NextTrack,
+    ];
+
+    /// A glyph path missing from the embedded icons would draw nothing.
+    #[test]
+    fn every_glyph_is_an_embedded_icon() {
+        for key in ALL_KEYS {
+            for engaged in [true, false] {
+                let path = icon(change(key, engaged));
+                assert!(
+                    openlogi_ui::action_icons::embedded_icon(path).is_some(),
+                    "{path} for {key:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fn_lock_shows_a_padlock_shut_or_open() {
+        assert_ne!(
+            icon(change(LockKey::FnLock, true)),
+            icon(change(LockKey::FnLock, false))
+        );
+    }
+
+    #[test]
+    fn only_a_brightness_key_shows_a_level() {
+        for key in ALL_KEYS {
+            assert_eq!(
+                shows_brightness(key),
+                matches!(key, LockKey::BrightnessDown | LockKey::BrightnessUp),
+                "{key:?}"
+            );
+        }
+        let level = brightness_level(68);
+        assert!((level.fraction - 0.68).abs() < 1e-6);
+        assert_eq!(level.label.as_ref(), "68");
+    }
+
     #[test]
     fn a_key_turning_on_is_drawn_apart_from_one_turning_off() {
-        assert_eq!(glyph_colour(true), color::accent());
-        assert_eq!(glyph_colour(false), RELEASED);
-        assert_ne!(glyph_colour(true), glyph_colour(false));
+        let on = change(LockKey::CapsLock, true);
+        let off = change(LockKey::CapsLock, false);
+        assert_eq!(glyph_colour(on), color::accent());
+        assert_eq!(glyph_colour(off), RELEASED);
+        // A pressed key carries no state to colour.
+        assert_eq!(glyph_colour(change(LockKey::PlayPause, true)), TEXT);
     }
 
     /// The change each open indicator window shows.

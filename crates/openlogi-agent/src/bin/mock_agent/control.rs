@@ -26,6 +26,8 @@ online <n> | offline <n>         bring a device online or take it offline
 fail <n> unreachable|error       fail every read and write to an online device
 fail <n> clear                   answer reads and writes again
 lock caps|num|scroll|fn on|off   a keyboard turns a lock key on or off
+key brightness-down|brightness-up|previous|play|next
+                                 a keyboard reports a function-row key press
 backlight <level> <levels>       a keyboard reports its backlight level
 advance <seconds>                move frozen test time (--fixture runs only)
 flow link <peer> connected|unstable|lost
@@ -115,6 +117,7 @@ pub(super) fn parse(line: &str) -> Result<Option<Command>, String> {
         },
         "fail" => parse_fault(&mut words)?,
         "lock" => parse_lock_key(&mut words)?,
+        "key" => parse_key_press(&mut words)?,
         "backlight" => parse_backlight(&mut words)?,
         "advance" => {
             let seconds = words
@@ -189,6 +192,23 @@ fn parse_lock_key<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Comma
         _ => return Err("lock needs `on` or `off`".to_owned()),
     };
     Ok(Command::LockKey(LockKeyChange { key, engaged }))
+}
+
+fn parse_key_press<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Command, String> {
+    let key = match words.next() {
+        Some("brightness-down") => LockKey::BrightnessDown,
+        Some("brightness-up") => LockKey::BrightnessUp,
+        Some("previous") => LockKey::PreviousTrack,
+        Some("play") => LockKey::PlayPause,
+        Some("next") => LockKey::NextTrack,
+        _ => {
+            return Err(
+                "key needs `brightness-down`, `brightness-up`, `previous`, `play`, or `next`"
+                    .to_owned(),
+            );
+        }
+    };
+    Ok(Command::LockKey(LockKeyChange { key, engaged: true }))
 }
 
 fn parse_backlight<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Command, String> {

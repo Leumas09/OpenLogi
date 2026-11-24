@@ -22,6 +22,7 @@
 //!
 //! [`PairedDevice::settings_revision`]: openlogi_core::device::PairedDevice::settings_revision
 
+mod key_feedback;
 mod lock_keys;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -44,6 +45,7 @@ use hidpp::feature::fn_inversion::{
 use hidpp::feature::hires_wheel::{self, HiResWheelEvent};
 use hidpp::feature::lock_key_state::{LockKeyStateFeature, LockKeys};
 use hidpp::feature::multi_platform::PlatformChange;
+use hidpp::feature::reprog_controls::{self, ReprogControlsEvent};
 use hidpp::feature::unified_battery::BatteryEvent;
 use hidpp::feature::wireless_device_status::WirelessDeviceStatusEvent;
 use hidpp::protocol::{v10, v20};
@@ -53,8 +55,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tokio::sync::Notify;
 use tokio::sync::{mpsc, watch};
-use tracing::debug;
+use tracing::{debug, info};
 
+use self::key_feedback::{ArmConnection, FEEDBACK_CONTROLS, FeedbackArming};
 use self::lock_keys::{LockKeyState, ReadConnection};
 use crate::ReceiverProtocol;
 
@@ -370,6 +373,10 @@ pub(super) struct EventFeatureIndices {
     pub(super) backlight: Option<u8>,
     pub(super) lock_key_state: Option<u8>,
     pub(super) hires_wheel: Option<u8>,
+    /// `0x1b04` reprogrammable controls, for the function-row keys whose
+    /// presses the key indicator acknowledges (analytics reports only).
+    #[serde(default)]
+    pub(super) reprog_controls: Option<u8>,
 }
 
 impl EventFeatureIndices {
@@ -394,6 +401,7 @@ impl EventFeatureIndices {
                 0x1982 => indices.backlight = Some(index),
                 0x4220 => indices.lock_key_state = Some(index),
                 0x2121 => indices.hires_wheel = Some(index),
+                0x1b04 => indices.reprog_controls = Some(index),
                 _ => {}
             }
         }
@@ -503,6 +511,9 @@ struct DeviceEvents {
     /// The device's lock-key state, to tell which key a `0x4220` broadcast
     /// changed.
     lock_keys: LockKeyState,
+    /// Whether this connection has asked the keyboard to report its
+    /// brightness and media keys.
+    feedback: FeedbackArming,
 }
 
 /// A lock-state read in flight: which device it asks, and on which of its
@@ -544,16 +555,13 @@ impl SubscriptionState {
             }
             // The slot connected or dropped between scans, which may never
             // see it offline.
-            self.update_lock_keys(
-                v10::Message::from(raw).header().device_index,
-                LockKeyState::forget,
-            );
+            self.forget_connection(v10::Message::from(raw).header().device_index);
             return Some(HidppEventSource::ReceiverConnection);
         }
 
         let message = v20::Message::from(raw);
         let device_index = message.header().device_index;
-        if self.track_lock_keys(&message) {
+        if self.track_lock_keys(&message) || self.track_key_feedback(&message) {
             return None;
         }
         let source = self
@@ -565,7 +573,7 @@ impl SubscriptionState {
             .and_then(|device| device.features.recognizes(&message))?;
         if source == HidppEventSource::WirelessDeviceStatus {
             // A reconnection, which the scans may never see as offline.
-            self.update_lock_keys(device_index, LockKeyState::forget);
+            self.forget_connection(device_index);
         }
         if source.changes_settings() {
             // Bumped before the reconciliation request is sent, so the
@@ -664,6 +672,60 @@ impl SubscriptionState {
         true
     }
 
+    /// Publish the feedback keys a `0x1b04` analytics report from a
+    /// registered device names pressed. Key presses are not inventory, so
+    /// this never asks for a reconciliation. Returns whether `message` was
+    /// such a report.
+    fn track_key_feedback(&self, message: &v20::Message) -> bool {
+        let header = message.header();
+        let is_controls = self
+            .devices
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|device| {
+                device.device_index == header.device_index
+                    && device.features.reprog_controls == Some(header.feature_index)
+            });
+        if !is_controls {
+            return false;
+        }
+        let Some(ReprogControlsEvent::AnalyticsKeyEvents(events)) =
+            reprog_controls::decode_event(message, header.device_index, header.feature_index)
+        else {
+            return false;
+        };
+        for key in key_feedback::pressed(events) {
+            debug!(
+                device_index = header.device_index,
+                ?key,
+                ?events,
+                "feedback key reported"
+            );
+            self.notifier.notify_lock_key(LockKeyUpdate {
+                device_index: header.device_index,
+                key,
+                engaged: true,
+            });
+        }
+        true
+    }
+
+    /// The device came back or went away: what this connection knew of its
+    /// lock keys, and its key reporting request, no longer hold.
+    fn forget_connection(&self, device_index: u8) {
+        if let Some(device) = self
+            .devices
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .find(|device| device.device_index == device_index)
+        {
+            device.lock_keys.forget();
+            device.feedback.forget();
+        }
+    }
+
     /// Apply `transition` to the lock-key state of `device_index`, if
     /// registered.
     fn update_lock_keys(&self, device_index: u8, transition: impl FnOnce(&mut LockKeyState)) {
@@ -707,6 +769,7 @@ impl EventSubscriptionHandle {
                 features,
                 settings_revision: 0,
                 lock_keys: LockKeyState::default(),
+                feedback: FeedbackArming::default(),
             });
         }
     }
@@ -726,6 +789,7 @@ impl EventSubscriptionHandle {
             .find(|device| device.device_index == device_index)?;
         if !online {
             device.lock_keys.forget();
+            device.feedback.forget();
             return None;
         }
         let feature_index = device.features.lock_key_state?;
@@ -767,6 +831,83 @@ impl EventSubscriptionHandle {
                     state.record_read_failure(read.connection);
                 });
             }
+        }
+    }
+
+    /// The analytics request to start for an `online` keyboard whose
+    /// function-row keys this connection has not asked to report yet. Only
+    /// a device with a Fn row (Fn inversion) and `0x1b04` is asked.
+    fn key_feedback_to_arm(&self, device_index: u8, online: bool) -> Option<(u8, ArmConnection)> {
+        let mut devices = self
+            .state
+            .devices
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let device = devices
+            .iter_mut()
+            .find(|device| device.device_index == device_index)?;
+        if !online {
+            device.feedback.forget();
+            return None;
+        }
+        let features = device.features;
+        if features.fn_inversion.is_none() && features.fn_inversion_multi_host.is_none() {
+            return None;
+        }
+        let feature_index = features.reprog_controls?;
+        Some((feature_index, device.feedback.start()?))
+    }
+
+    /// Ask an `online` keyboard, once per connection, to report presses of
+    /// its brightness and media keys over `0x1b04` analytics, for the key
+    /// indicator. The keys keep their own action. A control the keyboard
+    /// does not have refuses the request, which is how this finds out.
+    pub(super) async fn sync_key_feedback(
+        &self,
+        channel: &Arc<HidppChannel>,
+        device_index: u8,
+        online: bool,
+    ) {
+        let Some((feature_index, connection)) = self.key_feedback_to_arm(device_index, online)
+        else {
+            return;
+        };
+        let controls = reprog_controls::ReprogControlsFeature::new(
+            Arc::clone(channel),
+            device_index,
+            feature_index,
+        );
+        let mut armed = Vec::new();
+        for (cid, key) in FEEDBACK_CONTROLS {
+            let change = reprog_controls::CidReportingChange {
+                analytics_key_events: Some(true),
+                ..reprog_controls::CidReportingChange::default()
+            };
+            match controls
+                .set_cid_reporting(reprog_controls::ControlId(cid), change)
+                .await
+            {
+                Ok(_) => armed.push(key),
+                Err(error) => debug!(device_index, cid, ?error, "key reporting not enabled"),
+            }
+        }
+        if armed.is_empty() {
+            if let Some(device) = self
+                .state
+                .devices
+                .write()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter_mut()
+                .find(|device| device.device_index == device_index)
+            {
+                device.feedback.retry(connection);
+            }
+        } else {
+            info!(
+                device_index,
+                ?armed,
+                "keyboard reports its brightness and media keys"
+            );
         }
     }
 
@@ -881,6 +1022,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                reprog_controls: None,
             }
         );
     }
@@ -912,6 +1054,7 @@ mod tests {
             device_index: 2,
             settings_revision: 0,
             lock_keys: LockKeyState::default(),
+            feedback: FeedbackArming::default(),
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: None,
@@ -927,6 +1070,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                reprog_controls: None,
             },
         });
         state.receiver_snapshot_depth.store(1, Ordering::Release);
@@ -954,6 +1098,7 @@ mod tests {
             device_index: 3,
             settings_revision: 0,
             lock_keys: LockKeyState::default(),
+            feedback: FeedbackArming::default(),
             features: EventFeatureIndices {
                 wireless_status: Some(5),
                 unified_battery: Some(7),
@@ -969,6 +1114,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                reprog_controls: None,
             },
         });
 
@@ -1025,6 +1171,7 @@ mod tests {
             device_index: 0xff,
             settings_revision: 0,
             lock_keys: LockKeyState::default(),
+            feedback: FeedbackArming::default(),
             features: EventFeatureIndices {
                 wireless_status: None,
                 unified_battery: None,
@@ -1040,6 +1187,7 @@ mod tests {
                 backlight: None,
                 lock_key_state: None,
                 hires_wheel: None,
+                reprog_controls: None,
             },
         });
         let event = |function_id: u8, software_id: u8, bytes: [u8; 3]| {
@@ -1100,6 +1248,7 @@ mod tests {
             device_index: 1,
             settings_revision: 0,
             lock_keys: LockKeyState::default(),
+            feedback: FeedbackArming::default(),
             features: EventFeatureIndices {
                 battery_status: Some(4),
                 battery_voltage: Some(6),
@@ -1622,6 +1771,60 @@ mod tests {
         assert_eq!(drain(&mut updates), []);
 
         // Lock keys are not a setting of the device.
+        assert_eq!(handle.settings_revision(1), 0);
+    }
+
+    #[test]
+    fn an_analytics_report_announces_the_feedback_keys_it_names() {
+        // 0x1b04 at index 3, beside the Fn row's 0x40a3.
+        let keyboard = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x1b04, 0x40a3]);
+        assert_eq!(keyboard.reprog_controls, Some(3));
+        let (notifier, mut receiver) = event_channel();
+        let state = Arc::new(SubscriptionState {
+            protocol: None,
+            devices: RwLock::new(Vec::new()),
+            receiver_snapshot_depth: AtomicUsize::new(0),
+            notifier,
+        });
+        let handle = EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        };
+        handle.register_device(1, keyboard);
+        let mut updates = receiver.take_lock_keys().unwrap();
+        let report = |function_id: u8, software_id: u8, head: &[u8]| -> HidppMessage {
+            let mut payload = [0; 16];
+            payload[..head.len()].copy_from_slice(head);
+            v20::Message::Long(
+                v20::MessageHeader {
+                    device_index: 1,
+                    feature_index: 3,
+                    function_id: U4::from_lo(function_id),
+                    software_id: U4::from_lo(software_id),
+                },
+                payload,
+            )
+            .into()
+        };
+
+        // Analytics (function 2): brightness up, then an Easy-Switch key that
+        // is not ours, then play/pause.
+        assert_eq!(
+            state.decode(
+                report(2, 0, &[0x00, 0xc8, 1, 0x00, 0xd1, 1, 0x00, 0xe5, 1]),
+                false
+            ),
+            None,
+            "a key press is not inventory"
+        );
+        assert_eq!(
+            drain(&mut updates),
+            [(LockKey::BrightnessUp, true), (LockKey::PlayPause, true)]
+        );
+        // A diverted-buttons report (function 0) is the capture session's.
+        state.decode(report(0, 0, &[0x00, 0xc8]), false);
+        // A reply to a request carries a software id: not a report.
+        state.decode(report(2, 0xd, &[0x00, 0xe6, 1]), false);
+        assert_eq!(drain(&mut updates), []);
         assert_eq!(handle.settings_revision(1), 0);
     }
 

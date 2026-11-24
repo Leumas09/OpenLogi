@@ -483,7 +483,9 @@ pub fn prettify_codename(raw: &str) -> String {
         .join(" ")
 }
 
-/// A keyboard lock key whose state the on-screen indicator reports.
+/// A keyboard key the on-screen key indicator reports: a lock key turning on
+/// or off, or a function-row key the keyboard reported being pressed, which
+/// the indicator acknowledges (see [`Self::is_press`]).
 ///
 /// Variants are append-only because this enum crosses bincode IPC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -497,6 +499,17 @@ pub enum LockKey {
     /// Fn lock, which a keyboard toggles itself (Fn+Esc) over HID++ Fn
     /// inversion (`0x40a2`/`0x40a3`). Engaged means F-keys first.
     FnLock,
+    /// The screen brightness down key, reported over HID++ `0x1b04`
+    /// analytics while the key keeps its own action.
+    BrightnessDown,
+    /// The screen brightness up key, as [`Self::BrightnessDown`].
+    BrightnessUp,
+    /// The previous-track media key, as [`Self::BrightnessDown`].
+    PreviousTrack,
+    /// The play/pause media key, as [`Self::BrightnessDown`].
+    PlayPause,
+    /// The next-track media key, as [`Self::BrightnessDown`].
+    NextTrack,
 }
 
 impl LockKey {
@@ -506,11 +519,33 @@ impl LockKey {
     /// meaning, so they show only on the other platforms. Logi Options+ marks
     /// both Windows-only; it ships for Windows and macOS only, and Linux treats
     /// these keys as Windows does.
+    ///
+    /// The brightness and media keys show on Windows only: macOS and the
+    /// Linux desktops draw their own indicator for them.
     #[must_use]
     pub const fn is_indicated_here(self) -> bool {
         match self {
             Self::CapsLock | Self::FnLock => true,
             Self::NumLock | Self::ScrollLock => !cfg!(target_os = "macos"),
+            Self::BrightnessDown
+            | Self::BrightnessUp
+            | Self::PreviousTrack
+            | Self::PlayPause
+            | Self::NextTrack => cfg!(target_os = "windows"),
+        }
+    }
+
+    /// Whether the indicator acknowledges a press of this key rather than a
+    /// state it turned on or off. A press is always reported engaged.
+    #[must_use]
+    pub const fn is_press(self) -> bool {
+        match self {
+            Self::NumLock | Self::CapsLock | Self::ScrollLock | Self::FnLock => false,
+            Self::BrightnessDown
+            | Self::BrightnessUp
+            | Self::PreviousTrack
+            | Self::PlayPause
+            | Self::NextTrack => true,
         }
     }
 }
@@ -1292,6 +1327,21 @@ mod tests {
     fn caps_lock_shows_everywhere_and_num_and_scroll_lock_not_on_macos() {
         assert!(LockKey::CapsLock.is_indicated_here());
         assert!(LockKey::FnLock.is_indicated_here());
+        for key in [
+            LockKey::BrightnessDown,
+            LockKey::BrightnessUp,
+            LockKey::PreviousTrack,
+            LockKey::PlayPause,
+            LockKey::NextTrack,
+        ] {
+            assert_eq!(
+                key.is_indicated_here(),
+                cfg!(target_os = "windows"),
+                "{key:?}"
+            );
+            assert!(key.is_press(), "{key:?}");
+        }
+        assert!(!LockKey::CapsLock.is_press());
         for key in [LockKey::NumLock, LockKey::ScrollLock] {
             assert_eq!(
                 key.is_indicated_here(),

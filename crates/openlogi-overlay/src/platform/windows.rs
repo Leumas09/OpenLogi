@@ -10,7 +10,14 @@ use crate::notice::{BOTTOM_MARGIN, notice_window_options};
 use crate::ring::{Placement, ring_window_options};
 
 #[cfg(target_os = "windows")]
+mod indicator;
+#[cfg(target_os = "windows")]
 mod native;
+
+#[cfg(all(target_os = "windows", not(test)))]
+pub(crate) use indicator::round_corners;
+#[cfg(target_os = "windows")]
+pub(crate) use indicator::screen_brightness;
 
 /// One native cursor/monitor snapshot, kept through bootstrap-window creation.
 pub(crate) struct RingPlacement {

@@ -60,7 +60,9 @@ use super::features::{BatteryProbe, ProbedFeatures};
 /// which also records HID++ 1.0, and adds the HID++ 1.0 battery registers to
 /// `BatteryProbe`.
 /// v20 adds the `Capabilities::change_host` flag (`0x1814` host switching).
-const SCHEMA_VERSION: u32 = 20;
+/// v21 adds the `0x1b04` reprogrammable-controls event index (fork: the key
+/// indicator's brightness and media keys).
+const SCHEMA_VERSION: u32 = 21;
 
 impl ProbeCacheError {
     /// Report why a store could not keep a snapshot.
@@ -260,6 +262,7 @@ mod tests {
             backlight: Some(16),
             lock_key_state: Some(17),
             hires_wheel: Some(19),
+            reprog_controls: Some(20),
         };
         let mut cache = HashMap::new();
         cache.insert(

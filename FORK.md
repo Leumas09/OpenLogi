@@ -80,6 +80,43 @@ on a conflict, keep upstream's version, then bump past it).
 - `crates/openlogi-ui/locales/*.toml` (`keyboard.fn_lock_on/off`)
 - `crates/openlogi-agent/src/bin/mock_agent/control.rs` (`lock fn on|off`)
 
+### Brightness and media keys in the key indicator (Windows)
+
+F1/F2 (screen brightness) and F8/F9/F10 (previous, play/pause, next) on the
+MX Keys show in the key indicator, brightness with the built-in panel's
+level. The keys keep their own Windows action: the agent asks the keyboard
+once per connection to *also* report their presses over HID++ `0x1b04`
+analytics (`setCidReporting` with only the analytics flag, the way the
+Easy-Switch session already does for its keys), and forwards them through
+the lock-key channel. `LockKey` gains `BrightnessDown`, `BrightnessUp`,
+`PreviousTrack`, `PlayPause`, `NextTrack` (still wire **v47**). The probe
+cache moves to schema **v21** for the new `0x1b04` event index.
+
+- `crates/openlogi-device/src/inventory/events.rs`, `events/key_feedback.rs`
+  (new), `cache.rs`, `persist.rs`
+- `crates/openlogi-core/src/device.rs` (`LockKey` variants, `is_press`)
+- `crates/openlogi-ipc/src/ipc.rs`, `tests/wire_format.rs`
+- `crates/openlogi-agent/src/bin/mock_agent/control.rs` (`key …`)
+
+### Frosted-glass indicators
+
+Lock keys, Fn lock, brightness, media keys and the backlight share one card
+(`indicator::card`): a glyph per key, the title, and for a level a bar with
+its value. On Windows the window uses GPUI's acrylic blur behind a
+translucent dark tint, with Windows 11's rounded corners and hairline border
+(`platform/windows/indicator.rs`); the brightness bar reads the built-in
+panel through `IOCTL_VIDEO_QUERY_DISPLAY_BRIGHTNESS`.
+
+- `crates/openlogi-overlay/src/{indicator,lock_key,backlight}.rs`,
+  `src/platform.rs`, `src/platform/windows.rs`,
+  `src/platform/windows/indicator.rs` (new), `Cargo.toml` (windows-sys features)
+- `crates/openlogi-ui/action-icons/` (sun, sun-dim, lightbulb,
+  arrow-big-up-dash, hash, lock-open, play-pause) and `src/action_icons.rs`
+- `crates/openlogi-ui/locales/*.toml` (`keyboard.indicator_brightness`)
+
+A debug build of the overlay overflows the main thread's stack when it opens
+an indicator on Windows (GPUI's debug frames); release builds are fine.
+
 ### Device photos decoded at display size (RAM)
 
 `img(path)` decoded the depot renders (up to ~2000 px) at full size and

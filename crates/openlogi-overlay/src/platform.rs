@@ -9,8 +9,10 @@ mod windows;
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) use placement::{NoticePlacement, RingPlacement};
+#[cfg(all(target_os = "windows", not(test)))]
+pub(crate) use windows::round_corners;
 #[cfg(target_os = "windows")]
-pub(crate) use windows::{NoticePlacement, RingPlacement};
+pub(crate) use windows::{NoticePlacement, RingPlacement, screen_brightness};
 
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -32,6 +32,7 @@ use gpui::{AssetSource, Result, SharedString};
 /// preview of the same ring exactly.
 #[rustfmt::skip]
 const ACTION_ICONS: &[(&str, &[u8])] = &[
+    ("action-icons/arrow-big-up-dash.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-big-up-dash.svg"))),
     ("action-icons/arrow-left-right.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-left-right.svg"))),
     ("action-icons/arrow-left.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-left.svg"))),
     ("action-icons/arrow-right.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/arrow-right.svg"))),
@@ -39,8 +40,8 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/battery-low.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/battery-low.svg"))),
     ("action-icons/bell.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bell.svg"))),
     ("action-icons/bluetooth.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bluetooth.svg"))),
-    ("action-icons/book-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/book-open.svg"))),
     ("action-icons/bolt.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bolt.svg"))),
+    ("action-icons/book-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/book-open.svg"))),
     ("action-icons/bug.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/bug.svg"))),
     ("action-icons/calendar.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/calendar.svg"))),
     ("action-icons/camera.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/camera.svg"))),
@@ -61,11 +62,14 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/gauge.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/gauge.svg"))),
     ("action-icons/globe.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/globe.svg"))),
     ("action-icons/grid-3x3.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/grid-3x3.svg"))),
+    ("action-icons/hash.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/hash.svg"))),
     ("action-icons/heart.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/heart.svg"))),
     ("action-icons/keyboard.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/keyboard.svg"))),
     ("action-icons/layers.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layers.svg"))),
     ("action-icons/layout-grid.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/layout-grid.svg"))),
+    ("action-icons/lightbulb.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lightbulb.svg"))),
     ("action-icons/list-checks.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/list-checks.svg"))),
+    ("action-icons/lock-open.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lock-open.svg"))),
     ("action-icons/lock.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/lock.svg"))),
     ("action-icons/monitor.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/monitor.svg"))),
     ("action-icons/moon.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/moon.svg"))),
@@ -76,6 +80,7 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/move.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/move.svg"))),
     ("action-icons/palette.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/palette.svg"))),
     ("action-icons/pencil.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/pencil.svg"))),
+    ("action-icons/play-pause.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/play-pause.svg"))),
     ("action-icons/play.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/play.svg"))),
     ("action-icons/redo-2.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/redo-2.svg"))),
     ("action-icons/refresh-cw.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/refresh-cw.svg"))),
@@ -96,8 +101,10 @@ const ACTION_ICONS: &[(&str, &[u8])] = &[
     ("action-icons/square-plus.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-plus.svg"))),
     ("action-icons/square-terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-terminal.svg"))),
     ("action-icons/square-x.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/square-x.svg"))),
-    ("action-icons/terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/terminal.svg"))),
     ("action-icons/star.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/star.svg"))),
+    ("action-icons/sun-dim.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/sun-dim.svg"))),
+    ("action-icons/sun.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/sun.svg"))),
+    ("action-icons/terminal.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/terminal.svg"))),
     ("action-icons/undo-2.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/undo-2.svg"))),
     ("action-icons/unifying.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/unifying.svg"))),
     ("action-icons/usb.svg", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/action-icons/usb.svg"))),
@@ -118,6 +125,32 @@ pub const LOW_BATTERY_ICON: &str = "action-icons/battery-low.svg";
 
 /// The glyph on the overlay's lock-key indicator.
 pub const LOCK_KEY_ICON: &str = "action-icons/keyboard.svg";
+
+/// The key indicator's glyphs, one per key it reports (fork). Caps Lock is an
+/// upward arrow, Num Lock a hash, Scroll Lock a scroll, Fn lock a padlock
+/// shut or open; brightness is a sun, full or dimmed; the media keys are
+/// their transport marks.
+pub const CAPS_LOCK_ICON: &str = "action-icons/arrow-big-up-dash.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const NUM_LOCK_ICON: &str = "action-icons/hash.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const SCROLL_LOCK_ICON: &str = "action-icons/scroll-text.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const FN_LOCK_ON_ICON: &str = "action-icons/lock.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const FN_LOCK_OFF_ICON: &str = "action-icons/lock-open.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const BRIGHTNESS_UP_ICON: &str = "action-icons/sun.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const BRIGHTNESS_DOWN_ICON: &str = "action-icons/sun-dim.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const PREVIOUS_TRACK_ICON: &str = "action-icons/skip-back.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const PLAY_PAUSE_ICON: &str = "action-icons/play-pause.svg";
+/// See [`CAPS_LOCK_ICON`].
+pub const NEXT_TRACK_ICON: &str = "action-icons/skip-forward.svg";
+/// The glyph on the overlay's keyboard-backlight indicator (fork).
+pub const BACKLIGHT_ICON: &str = "action-icons/lightbulb.svg";
 
 /// The embedded SVG for an `action-icons/…` asset path — the same path
 /// `ActionRingIcon::asset_path` names — or `None` for any other path.

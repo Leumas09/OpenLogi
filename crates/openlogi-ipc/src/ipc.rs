@@ -196,6 +196,9 @@ pub use succession::Identity;
 ///      button or an Actions Ring slot.
 /// v47: `LockKey::FnLock` appended — a keyboard toggling its own Fn lock
 ///      (Fn+Esc) over HID++ `0x40a2`/`0x40a3`, for the lock-key indicator.
+///      `LockKey::{BrightnessDown, BrightnessUp, PreviousTrack, PlayPause,
+///      NextTrack}` appended after it — function-row key presses a keyboard
+///      reports over `0x1b04` analytics, for the same indicator.
 pub const PROTOCOL_VERSION: u32 = 47;
 
 /// Environment variable through which the agent hands a supervised helper the

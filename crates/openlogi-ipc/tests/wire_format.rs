@@ -485,6 +485,29 @@ fn lock_keys() {
         },
         "0401030100",
     );
+    // A key press: always engaged.
+    assert_wire(
+        &LockKeyObservation {
+            generation: 5,
+            shown: Some(LockKeyChange {
+                key: LockKey::BrightnessUp,
+                engaged: true,
+            }),
+            language: None,
+        },
+        "0501050100",
+    );
+    assert_wire(
+        &LockKeyObservation {
+            generation: 6,
+            shown: Some(LockKeyChange {
+                key: LockKey::NextTrack,
+                engaged: true,
+            }),
+            language: None,
+        },
+        "0601080100",
+    );
 }
 
 #[test]
