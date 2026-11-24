@@ -210,7 +210,14 @@ fn device_card(
                         .when_some(glow, |this, (geom, color)| {
                             this.child(glow_canvas(geom, color))
                         })
-                        .child(device_image(record, light_enabled, light_settings, pal)),
+                        .child(device_image(
+                            record,
+                            light_enabled,
+                            light_settings,
+                            pal,
+                            // The widest card, at the default 16 px rem.
+                            (theme::GALLERY_CARD_MAX_W.0 * 16., theme::GALLERY_PHOTO_H),
+                        )),
                 )
                 // Outside the dimmed render, so an offline card's status
                 // stays legible.
@@ -645,11 +652,15 @@ fn connection_view(
 /// fall back to the raw pixel dimensions when the box can't fully constrain it,
 /// which (with an `overflow_hidden` parent) cropped the device into a zoomed
 /// close-up. `object_fit` defaults to `Contain`, so the whole device shows.
+///
+/// `photo_box` is the largest box, in logical pixels, the photo is drawn in:
+/// the photo is decoded to fit it rather than at the render's full size.
 fn device_image(
     record: &DeviceRecord,
     light_enabled: bool,
     light_settings: LightSettings,
     pal: Palette,
+    photo_box: (f32, f32),
 ) -> AnyElement {
     if record.kind == DeviceKind::Light {
         return light_visual::gallery(
@@ -668,7 +679,11 @@ fn device_image(
         .as_ref()
         .and_then(|a| a.hero_image_path.clone())
     {
-        return img(path).max_w_full().max_h_full().into_any_element();
+        let (width, height) = photo_box;
+        return img(crate::ui::photo::fitted(path, width, height))
+            .max_w_full()
+            .max_h_full()
+            .into_any_element();
     }
     // Cameras carry no depot asset, so give them a recognisable glyph on their
     // gallery card instead of the generic chip fallback.

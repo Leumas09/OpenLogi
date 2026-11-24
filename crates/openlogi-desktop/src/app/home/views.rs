@@ -363,7 +363,13 @@ fn device_list_row(
                 .when_some(glow, |this, (geom, color)| {
                     this.child(super::glow_canvas(geom, color))
                 })
-                .child(device_image(record, light_enabled, light_settings, pal)),
+                .child(device_image(
+                    record,
+                    light_enabled,
+                    light_settings,
+                    pal,
+                    (120., 68.),
+                )),
         )
         .child(
             v_flex()

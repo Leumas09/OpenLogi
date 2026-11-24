@@ -1817,7 +1817,10 @@ fn image_or_fallback(
     pal: &Palette,
 ) -> AnyElement {
     match img_path {
-        Some(path) if path.exists() => img(path).w(px(img_w)).h(px(img_h)).into_any_element(),
+        Some(path) if path.exists() => img(crate::ui::photo::fitted(path, img_w, img_h))
+            .w(px(img_w))
+            .h(px(img_h))
+            .into_any_element(),
         Some(_) | None => div()
             .w(px(img_w))
             .h(px(160.))

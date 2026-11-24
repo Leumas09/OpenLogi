@@ -34,6 +34,7 @@ use crate::features::keyboard::editors::{PowerUserKind, text_editor_placeholder}
 use crate::features::profiles::{profile_canvas_status, profile_name};
 use crate::services::assets::{GlowGeometry, ResolvedAsset};
 use crate::state::{AppState, BindingLayer, DeviceKey, DeviceRecord, StateEvent};
+use crate::ui::photo;
 use crate::ui::theme::{self, ACCENT_BLUE};
 
 const SIDE_GAP: f32 = 24.;
@@ -887,12 +888,20 @@ fn breathing_art(
             let side_w = side_view_width(a, mouse_h);
             h_flex()
                 .when_some(a.side_view.as_ref(), |this, side| {
-                    this.child(img(side.image_path.clone()).w(px(side_w)).h(px(mouse_h)))
+                    this.child(
+                        img(photo::fitted(side.image_path.clone(), side_w, mouse_h))
+                            .w(px(side_w))
+                            .h(px(mouse_h)),
+                    )
                 })
                 .child(
-                    img(a.image_path.clone())
-                        .w(px(mouse_w - side_w))
-                        .h(px(mouse_h)),
+                    img(photo::fitted(
+                        a.image_path.clone(),
+                        mouse_w - side_w,
+                        mouse_h,
+                    ))
+                    .w(px(mouse_w - side_w))
+                    .h(px(mouse_h)),
                 )
                 .into_any_element()
         }
