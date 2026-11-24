@@ -27,7 +27,7 @@ mod dpi;
 mod dpi_led;
 mod easy_switch;
 mod error;
-mod fn_lock;
+pub(crate) mod fn_lock;
 mod force_sensing;
 mod haptic;
 mod hires_wheel;

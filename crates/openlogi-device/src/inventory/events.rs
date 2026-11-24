@@ -591,7 +591,39 @@ impl SubscriptionState {
             self.notifier
                 .notify_backlight(BacklightUpdate::from_info(device_index, info));
         }
+        // Likewise, an Fn-inversion broadcast carries the new Fn lock for the
+        // lock-key indicator: the keyboard toggled it itself (Fn+Esc).
+        if source == HidppEventSource::FnInversion
+            && let Some(engaged) = self.announced_fn_lock(&message)
+        {
+            self.notifier.notify_lock_key(LockKeyUpdate {
+                device_index,
+                key: LockKey::FnLock,
+                engaged,
+            });
+        }
         Some(source)
+    }
+
+    /// The Fn lock an Fn-inversion broadcast from a registered device
+    /// announces, or `None` when its state is not one the feature defines.
+    fn announced_fn_lock(&self, message: &v20::Message) -> Option<bool> {
+        let header = message.header();
+        let features = self
+            .devices
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|device| device.device_index == header.device_index)
+            .map(|device| device.features)?;
+        let state = if features.fn_inversion_multi_host == Some(header.feature_index) {
+            FnInversionMultiHostFeature::decode_state_broadcast(message)
+        } else if features.fn_inversion == Some(header.feature_index) {
+            FnInversionWithDefaultStateFeature::decode_state_broadcast(message.extend_payload())
+        } else {
+            None
+        }?;
+        Some(crate::write::fn_lock::fn_lock_for(state))
     }
 
     /// Track a `0x4220` broadcast from a registered device and publish one
@@ -1591,6 +1623,62 @@ mod tests {
 
         // Lock keys are not a setting of the device.
         assert_eq!(handle.settings_revision(1), 0);
+    }
+
+    #[test]
+    fn an_fn_inversion_broadcast_announces_the_fn_lock() {
+        // 0x40a2 at index 3, 0x40a3 at index 4: each decodes its own layout.
+        let keyboard = EventFeatureIndices::from_feature_ids(&[0x0001, 0x0003, 0x40a2, 0x40a3]);
+        assert_eq!(keyboard.fn_inversion, Some(3));
+        assert_eq!(keyboard.fn_inversion_multi_host, Some(4));
+        let (notifier, mut receiver) = event_channel();
+        let state = Arc::new(SubscriptionState {
+            protocol: None,
+            devices: RwLock::new(Vec::new()),
+            receiver_snapshot_depth: AtomicUsize::new(0),
+            notifier,
+        });
+        let handle = EventSubscriptionHandle {
+            state: Arc::clone(&state),
+        };
+        handle.register_device(1, keyboard);
+        let mut updates = receiver.take_lock_keys().unwrap();
+        let report = |feature_index: u8, function_id: u8, head: &[u8]| -> HidppMessage {
+            let mut payload = [0; 16];
+            payload[..head.len()].copy_from_slice(head);
+            v20::Message::Long(
+                v20::MessageHeader {
+                    device_index: 1,
+                    feature_index,
+                    function_id: U4::from_lo(function_id),
+                    software_id: U4::from_lo(0),
+                },
+                payload,
+            )
+            .into()
+        };
+
+        // 0x40a3 [host, state, default, capabilities]: inversion off is
+        // F-keys first, which is Fn lock engaged.
+        assert_eq!(
+            state.decode(report(4, 0, &[0, 0, 1, 1]), false),
+            Some(HidppEventSource::FnInversion)
+        );
+        assert_eq!(drain(&mut updates), [(LockKey::FnLock, true)]);
+        state.decode(report(4, 0, &[0, 1, 1, 1]), false);
+        assert_eq!(drain(&mut updates), [(LockKey::FnLock, false)]);
+
+        // 0x40a2 [state, default] on function 1.
+        state.decode(report(3, 1, &[0, 1]), false);
+        assert_eq!(drain(&mut updates), [(LockKey::FnLock, true)]);
+
+        // A state the feature does not define still asks for a re-read, but
+        // shows nothing.
+        assert_eq!(
+            state.decode(report(4, 0, &[0, 9, 1, 1]), false),
+            Some(HidppEventSource::FnInversion)
+        );
+        assert_eq!(drain(&mut updates), []);
     }
 
     #[test]

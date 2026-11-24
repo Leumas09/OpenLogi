@@ -64,7 +64,7 @@ fn inversion_for(fn_lock: bool) -> FnInversionState {
 }
 
 /// The Fn-lock setting a firmware inversion state reports.
-fn fn_lock_for(inversion: FnInversionState) -> bool {
+pub(crate) fn fn_lock_for(inversion: FnInversionState) -> bool {
     matches!(inversion, FnInversionState::Off)
 }
 

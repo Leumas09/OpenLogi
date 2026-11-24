@@ -33,6 +33,8 @@ pub(crate) const fn title_key(change: LockKeyChange) -> &'static str {
         (LockKey::NumLock, false) => "keyboard.num_lock_off",
         (LockKey::ScrollLock, true) => "keyboard.scroll_lock_on",
         (LockKey::ScrollLock, false) => "keyboard.scroll_lock_off",
+        (LockKey::FnLock, true) => "keyboard.fn_lock_on",
+        (LockKey::FnLock, false) => "keyboard.fn_lock_off",
     }
 }
 
@@ -149,11 +151,13 @@ mod tests {
                 change(LockKey::ScrollLock, false),
                 "keyboard.scroll_lock_off",
             ),
+            (change(LockKey::FnLock, true), "keyboard.fn_lock_on"),
+            (change(LockKey::FnLock, false), "keyboard.fn_lock_off"),
         ];
         // Exhaustive on purpose: a new lock key stops this compiling until it
         // is listed above.
         let _: fn(LockKey) = |key| match key {
-            LockKey::CapsLock | LockKey::NumLock | LockKey::ScrollLock => {}
+            LockKey::CapsLock | LockKey::NumLock | LockKey::ScrollLock | LockKey::FnLock => {}
         };
         for (change, key) in expected {
             assert_eq!(title_key(change), key, "{change:?}");
@@ -164,7 +168,12 @@ mod tests {
     /// other locales are held to the same keys by `catalog_parity`.
     #[test]
     fn every_announcement_is_in_the_catalog() {
-        for key in [LockKey::CapsLock, LockKey::NumLock, LockKey::ScrollLock] {
+        for key in [
+            LockKey::CapsLock,
+            LockKey::NumLock,
+            LockKey::ScrollLock,
+            LockKey::FnLock,
+        ] {
             for engaged in [true, false] {
                 let title = title_key(change(key, engaged));
                 assert_ne!(rust_i18n::t!(title, locale = "en"), title);

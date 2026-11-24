@@ -494,6 +494,9 @@ pub enum LockKey {
     CapsLock,
     /// Scroll Lock.
     ScrollLock,
+    /// Fn lock, which a keyboard toggles itself (Fn+Esc) over HID++ Fn
+    /// inversion (`0x40a2`/`0x40a3`). Engaged means F-keys first.
+    FnLock,
 }
 
 impl LockKey {
@@ -506,7 +509,7 @@ impl LockKey {
     #[must_use]
     pub const fn is_indicated_here(self) -> bool {
         match self {
-            Self::CapsLock => true,
+            Self::CapsLock | Self::FnLock => true,
             Self::NumLock | Self::ScrollLock => !cfg!(target_os = "macos"),
         }
     }
@@ -1288,6 +1291,7 @@ mod tests {
     #[test]
     fn caps_lock_shows_everywhere_and_num_and_scroll_lock_not_on_macos() {
         assert!(LockKey::CapsLock.is_indicated_here());
+        assert!(LockKey::FnLock.is_indicated_here());
         for key in [LockKey::NumLock, LockKey::ScrollLock] {
             assert_eq!(
                 key.is_indicated_here(),

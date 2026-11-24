@@ -25,7 +25,7 @@ battery <n> clear                report the profile's battery again
 online <n> | offline <n>         bring a device online or take it offline
 fail <n> unreachable|error       fail every read and write to an online device
 fail <n> clear                   answer reads and writes again
-lock caps|num|scroll on|off      a keyboard turns a lock key on or off
+lock caps|num|scroll|fn on|off   a keyboard turns a lock key on or off
 backlight <level> <levels>       a keyboard reports its backlight level
 advance <seconds>                move frozen test time (--fixture runs only)
 flow link <peer> connected|unstable|lost
@@ -180,7 +180,8 @@ fn parse_lock_key<'a>(words: &mut impl Iterator<Item = &'a str>) -> Result<Comma
         Some("caps") => LockKey::CapsLock,
         Some("num") => LockKey::NumLock,
         Some("scroll") => LockKey::ScrollLock,
-        _ => return Err("lock needs `caps`, `num`, or `scroll`".to_owned()),
+        Some("fn") => LockKey::FnLock,
+        _ => return Err("lock needs `caps`, `num`, `scroll`, or `fn`".to_owned()),
     };
     let engaged = match words.next() {
         Some("on") => true,

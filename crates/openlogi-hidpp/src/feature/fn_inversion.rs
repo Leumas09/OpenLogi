@@ -74,6 +74,21 @@ impl FnInversionMultiHostFeature {
         matches!(message, v20::Message::Long(..))
     }
 
+    /// The inversion state a [`Self::is_state_broadcast`] report announces.
+    ///
+    /// Reverse-engineered, like the broadcast itself: the report carries the
+    /// [`Self::get_global_fn_inversion`] fields, so its second byte is the
+    /// state. A value outside [`FnInversionState`] is refused.
+    #[must_use]
+    pub fn decode_state_broadcast(message: &v20::Message) -> Option<FnInversionState> {
+        let v20::Message::Long(_, payload) = message else {
+            return None;
+        };
+        FnInversionInfo::from_payload(*payload)
+            .ok()
+            .map(|info| info.state)
+    }
+
     /// Retrieves global Fn inversion for `host`.
     ///
     /// The four-field reply does not fit a short report, so a short reply is
@@ -172,6 +187,19 @@ impl FnInversionWithDefaultStateFeature {
     #[must_use]
     pub const fn is_state_broadcast(function_id: u8) -> bool {
         function_id == 1
+    }
+
+    /// The inversion state a [`Self::is_state_broadcast`] report with
+    /// `payload` announces.
+    ///
+    /// Reverse-engineered, like the broadcast itself: the report is the
+    /// [`Self::set_global_fn_inversion`] answer, whose first byte is the
+    /// state. A value outside [`FnInversionState`] is refused.
+    #[must_use]
+    pub fn decode_state_broadcast(payload: [u8; 16]) -> Option<FnInversionState> {
+        GlobalFnInversion::from_payload(payload)
+            .ok()
+            .map(|global| global.state)
     }
 
     /// Retrieves the global Fn inversion state and its default.
@@ -325,6 +353,66 @@ mod tests {
         assert!(!FnInversionMultiHostFeature::is_state_broadcast(
             &Message::Short(header(0), [1, 1, 0])
         ));
+    }
+
+    #[test]
+    fn multi_host_state_broadcast_carries_the_new_state() {
+        use super::FnInversionMultiHostFeature;
+        use crate::nibble::U4;
+        use crate::protocol::v20::{Message, MessageHeader};
+
+        let header = MessageHeader {
+            device_index: 1,
+            feature_index: 9,
+            function_id: U4::from_lo(0),
+            software_id: U4::from_lo(0),
+        };
+        let report = |state| {
+            let mut payload = [0; 16];
+            // Host slot 0, the state, its default (on), manual Fn lock.
+            payload[..4].copy_from_slice(&[0, state, 1, 1]);
+            Message::Long(header, payload)
+        };
+        assert_eq!(
+            FnInversionMultiHostFeature::decode_state_broadcast(&report(0)),
+            Some(FnInversionState::Off)
+        );
+        assert_eq!(
+            FnInversionMultiHostFeature::decode_state_broadcast(&report(1)),
+            Some(FnInversionState::On)
+        );
+        // An unknown state is refused, not read as either.
+        assert_eq!(
+            FnInversionMultiHostFeature::decode_state_broadcast(&report(7)),
+            None
+        );
+        assert_eq!(
+            FnInversionMultiHostFeature::decode_state_broadcast(&Message::Short(header, [0, 1, 1])),
+            None
+        );
+    }
+
+    #[test]
+    fn single_host_state_broadcast_carries_the_new_state() {
+        use super::FnInversionWithDefaultStateFeature;
+
+        let report = |state| {
+            let mut payload = [0; 16];
+            payload[..2].copy_from_slice(&[state, 1]);
+            payload
+        };
+        assert_eq!(
+            FnInversionWithDefaultStateFeature::decode_state_broadcast(report(0)),
+            Some(FnInversionState::Off)
+        );
+        assert_eq!(
+            FnInversionWithDefaultStateFeature::decode_state_broadcast(report(1)),
+            Some(FnInversionState::On)
+        );
+        assert_eq!(
+            FnInversionWithDefaultStateFeature::decode_state_broadcast(report(2)),
+            None
+        );
     }
 
     #[test]
