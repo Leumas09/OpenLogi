@@ -209,6 +209,9 @@ pub(crate) fn present(cx: &mut gpui::App, shelf: &Rc<RefCell<NoticeShelf>>, card
             return;
         }
     };
+    // Above any lock-key or backlight indicator already showing.
+    #[cfg(all(windows, not(test)))]
+    let placement = placement.lifted(crate::indicator::stacked_height::<NoticeView>(cx));
     // Wayland offers a fallback for compositors without layer-shell: the
     // first window that opens is the notice.
     let alternatives = placement

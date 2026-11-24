@@ -84,9 +84,17 @@ pub(crate) struct NoticePlacement {
     dpi: u32,
     /// The notice window's size in logical pixels.
     size: Size<Pixels>,
+    /// How far above its usual place the window sits, in logical pixels, to
+    /// clear the bottom windows already showing.
+    lift: Pixels,
 }
 
 impl NoticePlacement {
+    /// The same placement, `lift` logical pixels higher.
+    pub(crate) fn lifted(self, lift: Pixels) -> Self {
+        Self { lift, ..self }
+    }
+
     /// The notice window, opened as the same 1px bootstrap as the ring.
     pub(crate) fn openings(&self) -> Vec<WindowOptions> {
         vec![WindowOptions {
@@ -114,7 +122,7 @@ impl NoticePlacement {
         let work = self.work;
         let desired = point(
             work.left() + DevicePixels((work.size.width.0 - width.0) / 2),
-            work.bottom() - height - scaled(BOTTOM_MARGIN),
+            work.bottom() - height - scaled(BOTTOM_MARGIN) - scaled(self.lift.as_f32()),
         );
         // A work area smaller than the notice anchors it to the top-left, as
         // an undersized display does for the ring.
@@ -298,6 +306,7 @@ mod tests {
             dpi,
             // One card: 344×88 logical pixels.
             size: stack_size(1),
+            lift: gpui::px(0.0),
         }
     }
 
@@ -309,6 +318,26 @@ mod tests {
         // Centred: (1920 - 344) / 2 = 788. Above the taskbar by the margin:
         // 1032 - 88 - 48 = 896.
         assert_eq!(bounds.origin, point(DevicePixels(788), DevicePixels(896)));
+    }
+
+    #[test]
+    fn a_lifted_window_rises_by_its_lift_in_device_pixels() {
+        // As above, 96 logical pixels higher: 896 - 96 = 800.
+        let bounds = notice((0, 0, 1920, 1080), (0, 0, 1920, 1032), 96)
+            .lifted(gpui::px(96.0))
+            .bounds(96);
+        assert_eq!(bounds.origin, point(DevicePixels(788), DevicePixels(800)));
+        // At 200% the lift doubles with everything else.
+        let bounds = notice((0, 0, 3840, 2160), (0, 0, 3840, 2064), 192)
+            .lifted(gpui::px(96.0))
+            .bounds(192);
+        // 2064 - 176 - 96 - 192 = 1600.
+        assert_eq!(bounds.origin.y, DevicePixels(1600));
+        // A lift past the top keeps the window inside the work area.
+        let bounds = notice((0, 0, 1920, 1080), (0, 0, 1920, 1032), 96)
+            .lifted(gpui::px(5000.0))
+            .bounds(96);
+        assert_eq!(bounds.origin.y, DevicePixels(0));
     }
 
     #[test]

@@ -53,6 +53,7 @@ impl NoticePlacement {
             work: sample.work,
             dpi: sample.dpi,
             size,
+            lift: gpui::px(0.0),
         })
     }
 
